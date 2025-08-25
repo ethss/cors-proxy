@@ -1,9 +1,9 @@
-import json
-import requests
 from urllib.parse import unquote
+import requests
+import json
 
 def handler(request):
-    # Handle CORS preflight
+    # Handle preflight
     if request.method == "OPTIONS":
         return {
             "statusCode": 204,
@@ -16,7 +16,7 @@ def handler(request):
         }
 
     try:
-        target_url = request.GET.get("url")
+        target_url = request.args.get("url")  # instead of request.GET.get
         if not target_url:
             return {
                 "statusCode": 400,
@@ -30,38 +30,23 @@ def handler(request):
         target_url = unquote(target_url)
         headers = {"User-Agent": "Mozilla/5.0"}
 
-        resp = requests.get(target_url, headers=headers, timeout=15)
+        method = request.method.upper()
+        data = request.data if method in ["POST", "PUT", "PATCH"] else None
 
-        # Try to parse JSON safely
-        try:
-            data = resp.json()
-            body = json.dumps(data)
-            content_type = "application/json"
-        except:
-            body = resp.text
-            content_type = resp.headers.get("Content-Type", "text/plain")
+        resp = requests.request(method, target_url, headers=headers, data=data, timeout=10)
+
+        excluded_headers = ["content-encoding", "content-length", "transfer-encoding", "connection"]
+        response_headers = {k: v for k, v in resp.headers.items() if k.lower() not in excluded_headers}
+        response_headers["Access-Control-Allow-Origin"] = "*"
+        response_headers["Access-Control-Allow-Methods"] = "*"
+        response_headers["Access-Control-Allow-Headers"] = "*"
 
         return {
             "statusCode": resp.status_code,
-            "body": body,
-            "headers": {
-                "Content-Type": content_type,
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-            },
+            "body": resp.text,
+            "headers": response_headers,
         }
 
-    except requests.exceptions.RequestException as e:
-        # Network/timeout errors
-        return {
-            "statusCode": 502,
-            "body": json.dumps({"error": f"Request failed: {str(e)}"}),
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-            },
-        }
     except Exception as e:
         return {
             "statusCode": 500,
