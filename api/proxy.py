@@ -3,20 +3,19 @@ import requests
 from urllib.parse import unquote
 
 def handler(request):
-    # Handle CORS preflight for any method
+    # Handle CORS preflight
     if request.method == "OPTIONS":
         return {
             "statusCode": 204,
             "body": "",
             "headers": {
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",  # Allow all HTTP methods
-                "Access-Control-Allow-Headers": "*",  # Allow all headers
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
             },
         }
 
     try:
-        # Get the target URL from query parameters
         target_url = request.GET.get("url")
         if not target_url:
             return {
@@ -25,35 +24,44 @@ def handler(request):
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "*",
-                    "Access-Control-Allow-Headers": "*",
                 },
             }
 
         target_url = unquote(target_url)
         headers = {"User-Agent": "Mozilla/5.0"}
 
-        # Use the same method as the incoming request
-        method = request.method.upper()
-        data = request.get_data() if method in ["POST", "PUT", "PATCH"] else None
+        resp = requests.get(target_url, headers=headers, timeout=15)
 
-        resp = requests.request(method, target_url, headers=headers, data=data, timeout=10)
-
-        # Return the response with proper CORS headers
-        excluded_headers = ["content-encoding", "content-length", "transfer-encoding", "connection"]
-        response_headers = [(k, v) for k, v in resp.headers.items() if k.lower() not in excluded_headers]
-
-        # Always allow CORS
-        response_headers.append(("Access-Control-Allow-Origin", "*"))
-        response_headers.append(("Access-Control-Allow-Methods", "*"))
-        response_headers.append(("Access-Control-Allow-Headers", "*"))
+        # Try to parse JSON safely
+        try:
+            data = resp.json()
+            body = json.dumps(data)
+            content_type = "application/json"
+        except:
+            body = resp.text
+            content_type = resp.headers.get("Content-Type", "text/plain")
 
         return {
             "statusCode": resp.status_code,
-            "body": resp.text,
-            "headers": dict(response_headers),
+            "body": body,
+            "headers": {
+                "Content-Type": content_type,
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
         }
 
+    except requests.exceptions.RequestException as e:
+        # Network/timeout errors
+        return {
+            "statusCode": 502,
+            "body": json.dumps({"error": f"Request failed: {str(e)}"}),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+            },
+        }
     except Exception as e:
         return {
             "statusCode": 500,
@@ -61,7 +69,5 @@ def handler(request):
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
             },
         }
